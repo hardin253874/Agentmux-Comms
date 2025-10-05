@@ -1,0 +1,120 @@
+# Agentmux Comms & MCP Bridge - DAG definition
+# This DAG defines the sequential build plan for setting up and verifying
+# the full Agentmux orchestration + MCP bridge system.
+# Each task corresponds to one isolated implementation or verification step.
+
+tasks:
+  - id: "smoke:noop-codex"
+    name: "Smoke test noop (codex)"
+    agent: "codex"
+    deps: []
+    payload:
+      kind: "noop"
+ 
+  # --- 1. Workspace bootstrap -------------------------------------------------
+  - id: "init:workspace"
+    name: "Bootstrap pnpm workspace and base folders"
+    agent: "claude"
+    deps: []
+    payload:
+      goal: "Create monorepo structure (packages/, tools/, state/, artifacts/, config files)"
+
+  # --- 2. Shared core ---------------------------------------------------------
+  - id: "core:storage"
+    name: "Implement SQLite + JSONL core utilities"
+    agent: "claude"
+    deps: ["init:workspace"]
+    payload:
+      goal: "Create tasks.db schema + event log writer; export CRUD functions"
+
+  # --- 3. MCP-State server ----------------------------------------------------
+  - id: "mcp:state"
+    name: "Implement mcp-state server"
+    agent: "claude"
+    deps: ["core:storage"]
+    payload:
+      goal: "Provide task & event APIs (claim, renew, complete, fail, release, etc.)"
+
+  # --- 4. MCP-Artifacts server ------------------------------------------------
+  - id: "mcp:artifacts"
+    name: "Implement mcp-artifacts server"
+    agent: "claude"
+    deps: ["core:storage"]
+    payload:
+      goal: "Provide read/write JSON + binary with path whitelist enforcement"
+
+  # --- 5. CLI - base commands -------------------------------------------------
+  - id: "cli:seed-list"
+    name: "Implement agentmux CLI (seed + list)"
+    agent: "claude"
+    deps: ["mcp:state"]
+    payload:
+      goal: "Implement tasks seed <dag.yaml> and tasks ls commands"
+
+  # --- 6. CLI - worker loop ---------------------------------------------------
+  - id: "cli:worker"
+    name: "Implement worker command"
+    agent: "claude"
+    deps: ["cli:seed-list"]
+    payload:
+      goal: "Implement worker --agent <name> loop for claim→execute→complete"
+
+  # --- 7. CLI - status page ---------------------------------------------------
+  - id: "cli:status"
+    name: "Implement status command"
+    agent: "claude"
+    deps: ["cli:worker"]
+    payload:
+      goal: "Render state/status.md (counts, events, heartbeats)"
+
+  # --- 8. Tests: unit ---------------------------------------------------------
+  - id: "tests:unit"
+    name: "Add unit tests for DB + JSONL"
+    agent: "claude"
+    deps: ["core:storage"]
+    payload:
+      goal: "Verify claim/renew/complete logic; validate append-only events"
+
+  # --- 9. Tests: race ---------------------------------------------------------
+  - id: "tests:race"
+    name: "Add concurrency and lease expiry tests"
+    agent: "claude"
+    deps: ["tests:unit", "cli:worker"]
+    payload:
+      goal: "Ensure only one worker claims at a time; verify reclaim after expiry"
+
+  # --- 10. Docs generation ----------------------------------------------------
+  - id: "docs:status"
+    name: "Generate developer documentation"
+    agent: "codex"
+    deps: ["cli:status"]
+    payload:
+      goal: "Produce README.md and runtime tree diagrams for developer onboarding"
+
+  # --- 11. Spec review --------------------------------------------------------
+  - id: "review:spec"
+    name: "Review architecture and contracts"
+    agent: "codex"
+    deps: ["docs:status"]
+    payload:
+      goal: "Cross-check MCP method signatures and schemas vs spec"
+
+  # --- 12. Scheduler integration ----------------------------------------------
+  - id: "scheduler:gemini"
+    name: "Integrate optional Gemini scheduler"
+    agent: "claude"
+    deps: ["cli:status"]
+    payload:
+      goal: "Implement periodic check-in + heartbeat sync (every 15 minutes)"
+
+  # --- 13. Final QA -----------------------------------------------------------
+  - id: "qa:acceptance"
+    name: "Run acceptance validation"
+    agent: "codex"
+    deps:
+      - "tests:race"
+      - "review:spec"
+      - "scheduler:gemini"
+    payload:
+      goal: "Confirm all acceptance criteria met (atomicity, logs, safety)"
+
